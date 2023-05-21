@@ -32,6 +32,11 @@ export interface StoreExpr {
     rhs: Expr;
 }
 
+export interface StringLiteralExpr {
+    kind: "StringLiteralExpr";
+    val: string;
+}
+
 export interface FloatLiteralExpr {
     kind: "FloatLiteralExpr";
     val: number;
@@ -55,7 +60,7 @@ export interface IndexExpr {
     index: Expr;
 }
 
-export type Expr = TernaryExpr | BinaryExpr | UnaryExpr | LoadExpr | StoreExpr | FloatLiteralExpr | CallExpr | MemberExpr | IndexExpr;
+export type Expr = TernaryExpr | BinaryExpr | UnaryExpr | LoadExpr | StoreExpr | FloatLiteralExpr | StringLiteralExpr | CallExpr | MemberExpr | IndexExpr;
 
 export interface IfStmt {
     kind: "IfStmt";
@@ -122,9 +127,8 @@ export type Stmt = IfStmt | ForStmt | WhileStmt | DoWhileStmt | BlockStmt | Expr
 
 export enum FunctionParamFlags {
     None    = 0,
-    In      = 1 << 0,
     Out     = 1 << 1,
-    InOut   = In | Out,
+    InOut   = 1 << 2,
 }
 
 export interface FunctionParam {

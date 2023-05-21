@@ -50,8 +50,10 @@ class FloatValue extends Value {
     public evalBinOp(op: string, rhs: Value): Value {
         if (rhs instanceof FloatValue)
             return this.evalBinOpFloat(op, rhs.value);
+        else if (rhs instanceof VecBase)
+            return rhs.evalBinOp(op, this);
         else
-            throw "whoops";
+            throw `Bad binary op: ${this.constructor.name} ${op} ${rhs.constructor.name}`;
     }
 
     private evalBinOpFloat(op: string, rhs: number): Value {
@@ -75,7 +77,7 @@ class FloatValue extends Value {
         case '>': return new BoolValue(this.value > rhs);
         case '<=': return new BoolValue(this.value <= rhs);
         case '<': return new BoolValue(this.value < rhs);
-        default: throw "whoops";
+        default: throw `${this.constructor.name}: Bad binary op ${op}`;
         }
     }
 
@@ -89,7 +91,7 @@ class FloatValue extends Value {
         case '--E': return this.assertNonConst(), new FloatValue(--this.value);
         case 'E++': return this.assertNonConst(), new FloatValue(this.value++);
         case 'E--': return this.assertNonConst(), new FloatValue(this.value--);
-        default: throw "whoops";
+        default: throw `${this.constructor.name}: Bad unary op ${op}`;
         }
     }
 
@@ -102,6 +104,24 @@ class FloatValue extends Value {
         else
             throw "whoops";
     }
+}
+
+class StringValue extends Value {
+    constructor(public value: string = "") {
+        super();
+    }
+
+    public copy(): Value {
+        return new StringValue(this.value);
+    }
+
+    public set(o: Value) {
+        this.assertNonConst();
+        assert(o instanceof StringValue);
+        this.value = o.value;
+    }
+
+    public dumpString() { return `"${this.value}"`; }
 }
 
 class BoolValue extends Value {
@@ -134,6 +154,8 @@ class BoolValue extends Value {
 class VecBase<T> extends Value {
     public length = 1;
     public value!: T[];
+
+    public map(f: (v: number, i: number) => number): VecBase<T> { throw "whoops"; };
 }
 
 function FloatVecClass(N: number) {
@@ -172,7 +194,7 @@ function FloatVecClass(N: number) {
             return new VecValue(this.value.slice());
         }
 
-        private mapIndex(f: (v: number, i: number) => number) {
+        public map(f: (v: number, i: number) => number) {
             return new VecValue(this.value.map(f));
         }
 
@@ -184,19 +206,19 @@ function FloatVecClass(N: number) {
                 rhsV = rhs.value;
 
             switch (op) {
-            case '+': return this.mapIndex((v, i) => this.value[i] + rhsV[i]);
-            case '-': return this.mapIndex((v, i) => this.value[i] - rhsV[i]);
-            case '*': return this.mapIndex((v, i) => this.value[i] * rhsV[i]);
-            case '/': return this.mapIndex((v, i) => this.value[i] / rhsV[i]);
+            case '+': return this.map((v, i) => this.value[i] + rhsV[i]);
+            case '-': return this.map((v, i) => this.value[i] - rhsV[i]);
+            case '*': return this.map((v, i) => this.value[i] * rhsV[i]);
+            case '/': return this.map((v, i) => this.value[i] / rhsV[i]);
             // TODO(jstpierre): mod in GLSL vs. HLSL
             // TODO(jstpierre): Integer typechecking
-            case '%': return this.mapIndex((v, i) => this.value[i] % rhsV[i]);
-            case '|': return this.mapIndex((v, i) => this.value[i] | rhsV[i]);
-            case '&': return this.mapIndex((v, i) => this.value[i] & rhsV[i]);
-            case '^': return this.mapIndex((v, i) => this.value[i] ^ rhsV[i]);
-            case '>>': return this.mapIndex((v, i) => this.value[i] >> rhsV[i]);
-            case '<<': return this.mapIndex((v, i) => this.value[i] << rhsV[i]);
-            default: throw "whoops";
+            case '%': return this.map((v, i) => this.value[i] % rhsV[i]);
+            case '|': return this.map((v, i) => this.value[i] | rhsV[i]);
+            case '&': return this.map((v, i) => this.value[i] & rhsV[i]);
+            case '^': return this.map((v, i) => this.value[i] ^ rhsV[i]);
+            case '>>': return this.map((v, i) => this.value[i] >> rhsV[i]);
+            case '<<': return this.map((v, i) => this.value[i] << rhsV[i]);
+            default: throw `${this.constructor.name}: Bad binary op ${op}`;
             }
         }
 
@@ -321,7 +343,7 @@ class Scope {
         else if (this.parent !== null)
             return this.parent.getVar(name)!;
         else
-            throw "whoops";
+            throw `Could not find variable: ${name}`;
     }
 
     public setVar(name: string, v: Value): Value {
@@ -335,7 +357,7 @@ class Scope {
         else if (this.parent !== null)
             return this.parent.getType(name)!;
         else
-            throw "whoops";
+            throw `Could not find type: ${name}`;
     }
 
     public setType(name: string, t: Type) {
@@ -348,7 +370,7 @@ class Scope {
         else if (this.parent !== null)
             return this.parent.getRunningFunction();
         else
-            throw "whoops";
+            throw "No running function?";
     }
 
     public getNativeFunction(name: string, paramTypes: Type[]): NativeFunction | null {
@@ -380,7 +402,7 @@ class Scope {
         if (this.parent !== null)
             return this.parent.getFunctionDecl(name, paramTypes);
 
-        throw "whoops";
+        throw `Could not find function ${name} with types [${paramTypes.map((v) => v.name).join(', ')}]`;
     }
 }
 
@@ -388,7 +410,7 @@ export class Exec {
     private globalScope: Scope;
     private voidValue = new VoidValue();
 
-    constructor(private mod: AST.Module) {
+    constructor(private mod: AST.Module, private mode: 'GLSL' | 'HLSL') {
         this.globalScope = new Scope(null);
         this.globalScope.mod = this.mod;
         this.globalScope.setType('void', VoidValue);
@@ -399,6 +421,7 @@ export class Exec {
         this.globalScope.setType('bool', BoolValue);
         this.globalScope.setNativeFunc('bool', BoolValue.constructorN);
 
+        // HLSL
         this.globalScope.setType('float2', Float2Value);
         this.globalScope.setNativeFunc('float2', Float2Value.constructorN);
         this.globalScope.setType('float3', Float3Value);
@@ -406,10 +429,30 @@ export class Exec {
         this.globalScope.setType('float4', Float4Value);
         this.globalScope.setNativeFunc('float4', Float4Value.constructorN);
 
+        // GLSL
+        this.globalScope.setType('vec2', Float2Value);
+        this.globalScope.setNativeFunc('vec2', Float2Value.constructorN);
+        this.globalScope.setType('vec3', Float3Value);
+        this.globalScope.setNativeFunc('vec3', Float3Value.constructorN);
+        this.globalScope.setType('vec4', Float4Value);
+        this.globalScope.setNativeFunc('vec4', Float4Value.constructorN);
+
         this.globalScope.setVar('false', new BoolValue(false).setConst());
         this.globalScope.setVar('true', new BoolValue(true).setConst());
-        this.globalScope.setNativeFunc('print', this._func_print);
+
+        this.globalScope.setNativeFunc('clamp', this._func_clamp);
+        this.globalScope.setNativeFunc('abs', this._func_abs, [FloatValue]);
+        this.globalScope.setNativeFunc('log2', this._func_log2);
+        this.globalScope.setNativeFunc('exp2', this._func_exp2);
+        this.globalScope.setNativeFunc('exp', this._func_exp);
         this.globalScope.setNativeFunc('pow', this._func_pow_ff, [FloatValue, FloatValue]);
+        this.globalScope.setNativeFunc('min', this._func_min);
+        this.globalScope.setNativeFunc('max', this._func_max);
+        this.globalScope.setNativeFunc('sin', this._func_sin_f, [FloatValue]);
+        this.globalScope.setNativeFunc('cos', this._func_cos_f, [FloatValue]);
+        this.globalScope.setNativeFunc('tan', this._func_tan_f, [FloatValue]);
+
+        this.globalScope.setNativeFunc('print', this._func_print);
 
         for (const decl of mod.declarations)
             if (decl.kind === 'GlobalDecl')
@@ -563,7 +606,7 @@ export class Exec {
         if (expr.op === '?:')
             return this.cond(this.evalExpr(scope, expr.expr)) ? this.evalExpr(scope, expr.lhs) : this.evalExpr(scope, expr.rhs);
         else
-            throw "whoops";
+            throw `Bad ternary op ${expr.op}`;
     }
 
     private evalBinaryExpr(scope: Scope, expr: AST.BinaryExpr): Value {
@@ -604,6 +647,12 @@ export class Exec {
         return v;
     }
 
+    private evalStringLiteralExpr(scope: Scope, expr: AST.StringLiteralExpr): Value {
+        const v = new StringValue(expr.val);
+        v.isConst = true;
+        return v;
+    }
+
     private evalCallExpr(scope: Scope, expr: AST.CallExpr): Value {
         assert(expr.lhs.kind === 'LoadExpr');
 
@@ -632,7 +681,7 @@ export class Exec {
                 // InOut = pass by reference
 
                 let paramValue = argValues[i];
-                if (!(paramDecl.flags & AST.FunctionParamFlags.Out)) {
+                if (!(paramDecl.flags & (AST.FunctionParamFlags.Out | AST.FunctionParamFlags.InOut))) {
                     // Copy the value.
                     paramValue = paramValue.copy();
                 }
@@ -666,19 +715,107 @@ export class Exec {
             return this.evalStoreExpr(scope, expr);
         case 'FloatLiteralExpr':
             return this.evalFloatLiteralExpr(scope, expr);
+        case 'StringLiteralExpr':
+            return this.evalStringLiteralExpr(scope, expr);
         case 'CallExpr':
             return this.evalCallExpr(scope, expr);
         }
     }
 
     // Native functions
-    private _func_print(scope: Scope, args: Value[]): Value {
-        console.log(... args.map(v => v.dumpString()));
-        return this.voidValue;
+    private mapHelper(arg: Value, f: (v: number, i: number) => number): Value {
+        if (arg instanceof FloatValue)
+            return new FloatValue(f(arg.value, 0));
+        else if (arg instanceof VecBase)
+            return arg.map(f);
+        else
+            throw `Bad argument type: ${arg.constructor.name}`;
+    }
+
+    private splatHelper(arg: Value, conform: Value): Value {
+        if (conform instanceof FloatValue) {
+            assert(arg instanceof FloatValue);
+            return conform;
+        } else if (conform instanceof VecBase) {
+            if (arg instanceof FloatValue) {
+                return (conform.constructor as typeof Float2Value).splat(arg.value);
+            } else if (arg instanceof VecBase) {
+                assert(conform.length === arg.length);
+                return conform;
+            }
+        }
+
+        throw `Bad argument type in auto-splat: ${arg.constructor.name} / conform = ${conform.constructor.name}`;
+    }
+
+    private indexHelper(arg: Value, index: number): number {
+        const value = arg.evalIndex(new FloatValue(index));
+        assert(value instanceof FloatValue);
+        return value.value;
+    }
+
+    private _func_clamp(scope: Scope, args: Value[]): Value {
+        const x = args[0], min = this.splatHelper(args[1], x), max = this.splatHelper(args[2], x);
+        return this.mapHelper(x, (v, i) => {
+            const minX = this.indexHelper(min, i), maxX = this.indexHelper(max, i);
+            return Math.max(Math.min(v, maxX), minX);
+        });
+    }
+
+    private _func_min(scope: Scope, args: Value[]): Value {
+        const x = args[0], min = this.splatHelper(args[1], x);
+        return this.mapHelper(x, (v, i) => {
+            const minX = this.indexHelper(min, i);
+            return Math.min(v, minX);
+        });
+    }
+
+    private _func_max(scope: Scope, args: Value[]): Value {
+        const x = args[0], max = this.splatHelper(args[1], x);
+        return this.mapHelper(x, (v, i) => {
+            const maxX = this.indexHelper(max, i);
+            return Math.max(v, maxX);
+        });
+    }
+
+    private _func_log2(scope: Scope, args: Value[]): Value {
+        return this.mapHelper(args[0], (v) => Math.log2(v));
+    }
+
+    private _func_exp2(scope: Scope, args: Value[]): Value {
+        return this.mapHelper(args[0], (v) => Math.pow(2.0, v));
+    }
+
+    private _func_exp(scope: Scope, args: Value[]): Value {
+        return this.mapHelper(args[0], (v) => Math.exp(v));
+    }
+
+    private _func_abs(scope: Scope, args: Value[]): Value {
+        return this.mapHelper(args[0], (v) => Math.abs(v));
+    }
+
+    private _func_sin_f(scope: Scope, args: Value[]): Value {
+        const v = FloatValue.cast(args[0]).value;
+        return new FloatValue(Math.sin(v));
+    }
+
+    private _func_cos_f(scope: Scope, args: Value[]): Value {
+        const v = FloatValue.cast(args[0]).value;
+        return new FloatValue(Math.cos(v));
+    }
+
+    private _func_tan_f(scope: Scope, args: Value[]): Value {
+        const v = FloatValue.cast(args[0]).value;
+        return new FloatValue(Math.tan(v));
     }
 
     private _func_pow_ff(scope: Scope, args: Value[]): Value {
         const lhs = FloatValue.cast(args[0]).value, rhs = FloatValue.cast(args[1]).value;
         return new FloatValue(Math.pow(lhs, rhs));
+    }
+
+    private _func_print(scope: Scope, args: Value[]): Value {
+        console.log(... args.map(v => v.dumpString()));
+        return this.voidValue;
     }
 }

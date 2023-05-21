@@ -54,8 +54,9 @@ class Lexer {
         return { kind: 'Num', num: parseFloat(b) };
     }
 
-    private string(b: string):Token {
-        const d = b;
+    private string():Token {
+        let b = '';
+        const d = this.nextChar();
         while (true) {
             const c = this.nextChar();
             if (c === '\\') {
@@ -132,7 +133,7 @@ class Lexer {
             if (m.match(/\d/))
                 return this.number();
             if (m === '\'' || m === '"')
-                return this.string(m);
+                return this.string();
 
             for (const group of this.basicTokens) {
                 const token = this.nextSlice(group.length);
@@ -177,17 +178,10 @@ interface ParserState {
 
 class Parser {
     constructor(private lexer: Lexer) {
-        this.nextToken();
+        this.chew();
     }
 
     private c: Token | null = null;
-
-    private headKind(): string | null {
-        if (this.c !== null)
-            return this.c.kind;
-        else
-            return null;
-    }
 
     private save() {
         const lexer = this.lexer.save();
@@ -200,7 +194,14 @@ class Parser {
         this.c = s.c;
     }
 
-    private nextToken(): Token | null {
+    private peekKind(): string | null {
+        if (this.c !== null)
+            return this.c.kind;
+        else
+            return null;
+    }
+
+    private chew(): Token | null {
         const old = this.c;
         // console.log(old);
         this.c = this.lexer.next();
@@ -208,19 +209,19 @@ class Parser {
     }
 
     private expect<T extends Token>(k: string): T {
-        const m = this.nextToken();
+        const m = this.chew();
         assert(m !== null && m.kind === k);
         return m as T;
     }
 
     private predicate(k: string): boolean {
-        return this.headKind() === k;
+        return this.peekKind() === k;
     }
 
     private match(k:string): boolean {
         if (!this.predicate(k))
             return false;
-        this.nextToken();
+        this.chew();
         return true;
     }
 
@@ -240,11 +241,13 @@ class Parser {
     }
 
     private value(): AST.Expr {
-        switch (this.headKind()) {
+        switch (this.peekKind()) {
         case 'ID':
             return { kind: 'LoadExpr', id: this.expectID() };
         case 'Num':
             return { kind: 'FloatLiteralExpr', val: this.expectNumber() };
+        case 'Str':
+            return { kind: 'StringLiteralExpr', val: this.expect<TokenStr>('Str').str };
         case '+':
         case '-':
             return this.unaryExpr();
@@ -286,10 +289,10 @@ class Parser {
     }
 
     private callExprR(lhs: AST.Expr): AST.Expr {
-        if (this.headKind() === '(') {
+        if (this.peekKind() === '(') {
             const args = this.argumentList();
             return this.callExprR({ kind: 'CallExpr', lhs, args });
-        } else if (['.', '['].includes(this.headKind()!)) {
+        } else if (['.', '['].includes(this.peekKind()!)) {
             return this.memberExprR(lhs);
         } else {
             return lhs;
@@ -298,7 +301,7 @@ class Parser {
 
     private callExpr(): AST.Expr {
         const lhs = this.memberExpr();
-        if (this.headKind() === '(') {
+        if (this.peekKind() === '(') {
             const args = this.argumentList();
             return this.callExprR({ kind: 'CallExpr', lhs, args });
         } else {
@@ -320,8 +323,8 @@ class Parser {
             return { kind: 'UnaryExpr', op: '++E', expr: this.postfixExpr() };
         } else if (this.match('--')) {
             return { kind: 'UnaryExpr', op: '--E', expr: this.postfixExpr() };
-        } else if (['!', '~', '+', '-'].includes(this.headKind()!)) {
-            const op = this.nextToken()!.kind;
+        } else if (['!', '~', '+', '-'].includes(this.peekKind()!)) {
+            const op = this.chew()!.kind;
             return { kind: 'UnaryExpr', op, expr: this.unaryExpr() };
         } else {
             return this.postfixExpr();
@@ -330,8 +333,8 @@ class Parser {
 
     private multiplicativeExpr(): AST.Expr {
         let lhs = this.unaryExpr();
-        while (['*', '/', '%'].includes(this.headKind()!)) {
-            const op = this.nextToken()!.kind;
+        while (['*', '/', '%'].includes(this.peekKind()!)) {
+            const op = this.chew()!.kind;
             const rhs = this.unaryExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -340,8 +343,8 @@ class Parser {
 
     private additiveExpr(): AST.Expr {
         let lhs = this.multiplicativeExpr();
-        while (['+', '-'].includes(this.headKind()!)) {
-            const op = this.nextToken()!.kind;
+        while (['+', '-'].includes(this.peekKind()!)) {
+            const op = this.chew()!.kind;
             const rhs = this.multiplicativeExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -350,8 +353,8 @@ class Parser {
 
     private shiftExpr(): AST.Expr {
         let lhs = this.additiveExpr();
-        while (['<<', '>>'].includes(this.headKind()!)) {
-            const op = this.nextToken()!.kind;
+        while (['<<', '>>'].includes(this.peekKind()!)) {
+            const op = this.chew()!.kind;
             const rhs = this.additiveExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -360,8 +363,8 @@ class Parser {
 
     private relationalExpr(): AST.Expr {
         let lhs = this.shiftExpr();
-        while (['<', '<=', '>', '>='].includes(this.headKind()!)) {
-            const op = this.nextToken()!.kind;
+        while (['<', '<=', '>', '>='].includes(this.peekKind()!)) {
+            const op = this.chew()!.kind;
             const rhs = this.shiftExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -370,8 +373,8 @@ class Parser {
 
     private equalityExpr(): AST.Expr {
         let lhs = this.relationalExpr();
-        while (['==', '!='].includes(this.headKind()!)) {
-            const op = this.nextToken()!.kind;
+        while (['==', '!='].includes(this.peekKind()!)) {
+            const op = this.chew()!.kind;
             const rhs = this.relationalExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -380,8 +383,8 @@ class Parser {
 
     private bitwiseAndExpr(): AST.Expr {
         let lhs = this.equalityExpr();
-        while (this.headKind() === '&') {
-            const op = this.nextToken()!.kind;
+        while (this.peekKind() === '&') {
+            const op = this.chew()!.kind;
             const rhs = this.equalityExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -390,8 +393,8 @@ class Parser {
 
     private bitwiseXorExpr(): AST.Expr {
         let lhs = this.bitwiseAndExpr();
-        while (this.headKind() === '^') {
-            const op = this.nextToken()!.kind;
+        while (this.peekKind() === '^') {
+            const op = this.chew()!.kind;
             const rhs = this.bitwiseAndExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -400,8 +403,8 @@ class Parser {
 
     private bitwiseOrExpr(): AST.Expr {
         let lhs = this.bitwiseXorExpr();
-        while (this.headKind() === '|') {
-            const op = this.nextToken()!.kind;
+        while (this.peekKind() === '|') {
+            const op = this.chew()!.kind;
             const rhs = this.bitwiseXorExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -410,8 +413,8 @@ class Parser {
 
     private logicalAndExpr(): AST.Expr {
         let lhs = this.bitwiseOrExpr();
-        while (this.headKind() === '&&') {
-            const op = this.nextToken()!.kind;
+        while (this.peekKind() === '&&') {
+            const op = this.chew()!.kind;
             const rhs = this.bitwiseOrExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -420,8 +423,8 @@ class Parser {
 
     private logicalOrExpr(): AST.Expr {
         let lhs = this.logicalAndExpr();
-        while (this.headKind() === '||') {
-            const op = this.nextToken()!.kind;
+        while (this.peekKind() === '||') {
+            const op = this.chew()!.kind;
             const rhs = this.logicalAndExpr();
             lhs = { kind: 'BinaryExpr', op, lhs, rhs };
         }
@@ -442,8 +445,8 @@ class Parser {
 
     private assignmentExpression(): AST.Expr {
         const lhs = this.ternaryExpr();
-        if (['=', '||=', '&&=', '|=', '&=', '^=', '>>=', '<<=', '+=', '-=', '*=', '/=', '%=', '!=', '~=', ].includes(this.headKind()!)) {
-            const op = this.nextToken()!.kind;
+        if (['=', '||=', '&&=', '|=', '&=', '^=', '>>=', '<<=', '+=', '-=', '*=', '/=', '%=', '!=', '~=', ].includes(this.peekKind()!)) {
+            const op = this.chew()!.kind;
             const rhs = this.assignmentExpression();
             return { kind: 'StoreExpr', op, lhs, rhs };
         } else {
@@ -488,9 +491,9 @@ class Parser {
 
         this.match('static');
         const isConst = this.match('const');
-        if (this.headKind() === 'ID') {
+        if (this.peekKind() === 'ID') {
             const type = this.expectID();
-            if (this.headKind() === 'ID') {
+            if (this.peekKind() === 'ID') {
                 const name = this.expectID();
                 let init: AST.Expr | null = null;
                 if (this.match('='))
@@ -547,7 +550,7 @@ class Parser {
     }
 
     private stmt(): AST.Stmt {
-        switch (this.headKind()) {
+        switch (this.peekKind()) {
         case 'if'    : return this.ifStmt();
         case 'return': return this.returnStmt();
         case 'for'   : return this.forStmt();
@@ -566,11 +569,9 @@ class Parser {
         while (!this.predicate(')')) {
             let flags = AST.FunctionParamFlags.None;
 
-            while (['in', 'out', 'inout'].includes(this.headKind()!)) {
-                const token = this.nextToken()!;
-                if (token.kind === 'in')
-                    flags |= AST.FunctionParamFlags.In;
-                else if (token.kind === 'out')
+            while (['in', 'out', 'inout'].includes(this.peekKind()!)) {
+                const token = this.chew()!;
+                if (token.kind === 'out')
                     flags |= AST.FunctionParamFlags.Out;
                 else if (token.kind === 'inout')
                     flags |= AST.FunctionParamFlags.InOut;
@@ -613,8 +614,8 @@ class Parser {
     public module(): AST.Module {
         const declarations: AST.Decl[] = [];
 
-        while (this.headKind() !== null) {
-            switch (this.headKind()) {
+        while (this.peekKind() !== null) {
+            switch (this.peekKind()) {
             case 'static':
             case 'const':
                 declarations.push(this.globalDecl());
